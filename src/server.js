@@ -30,6 +30,9 @@ app.use(session({
 // 静态文件服务
 app.use('/admin/static', express.static(path.join(__dirname, '../public/static')));
 
+// 根目录静态文件服务（用于微信验证文件等）
+app.use(express.static(path.join(__dirname, '../public')));
+
 // 后台管理路由
 app.use('/admin', adminRouter);
 

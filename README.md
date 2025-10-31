@@ -364,99 +364,87 @@ GET /api/videos
 
 ## 部署方式
 
-本项目提供多种部署方式，根据你的需求和技术水平选择：
-
 ### 📚 部署文档
 
-- **[QUICKSTART.md](QUICKSTART.md)** - 快速部署指南（5-15 分钟）⭐推荐新手
-- **[BAOTA_DEPLOY.md](BAOTA_DEPLOY.md)** - 宝塔面板部署指南（可视化操作）⭐推荐不熟悉命令行的用户
-- **[DEPLOY.md](DEPLOY.md)** - 完整部署文档（专业用户）
+推荐使用宝塔面板部署，简单易用：
 
-### 🚀 快速选择
+- **[BAOTA.md](BAOTA.md)** - 宝塔面板一站式部署指南 ⭐️ 推荐
+  - 完整五步部署流程
+  - Node.js 版本管理
+  - 故障排查和性能优化
+  - 所有宝塔相关内容已整合到这一个文件
 
-| 部署方式 | 适合人群 | 难度 | 推荐指数 |
-|---------|---------|------|---------|
-| **宝塔面板** | 不熟悉命令行、希望可视化管理 | ⭐ 简单 | ⭐⭐⭐⭐⭐ |
-| **Git + PM2** | 熟悉命令行、追求轻量化 | ⭐⭐ 中等 | ⭐⭐⭐⭐⭐ |
-| **手动部署** | 开发者、需要完全控制 | ⭐⭐⭐ 较难 | ⭐⭐⭐ |
-| **Docker** | 容器化部署、团队协作 | ⭐⭐⭐ 较难 | ⭐⭐⭐⭐ |
+### 🚀 快速开始
 
-### 方式一：宝塔面板部署（推荐）
-
-**特点**：可视化操作、简单易用、功能强大
+#### 打包项目
 
 ```bash
-# 1. 安装宝塔面板
-wget -O install.sh https://download.bt.cn/install/install-ubuntu_6.0.sh && sudo bash install.sh
+# 使用打包脚本
+./pack.sh
 
-# 2. 通过面板安装 PM2 管理器和 Nginx
-# 3. 使用文件管理器上传代码或通过 Git 克隆
-# 4. 在 PM2 管理器中添加项目并启动
+# 会生成 wechat-video-service_日期时间.tar.gz 文件（约50-100KB）
 ```
 
-详细教程：[宝塔面板部署指南](BAOTA_DEPLOY.md)
+#### 宝塔面板部署（推荐）
 
-### 方式二：使用 PM2 管理进程（推荐）
+**适合人群**：所有用户，特别是不熟悉命令行的用户
+
+**部署步骤**：
+
+1. **安装宝塔面板**（5分钟）
+   ```bash
+   # Ubuntu/Debian
+   wget -O install.sh https://download.bt.cn/install/install-ubuntu_6.0.sh && sudo bash install.sh
+   ```
+
+2. **安装必要软件**（10分钟）
+   - 软件商店 → 安装 Nginx
+   - 软件商店 → 安装 Node 版本管理器 → 安装 Node.js 18
+   - 软件商店 → 安装 Node 项目管理器
+
+3. **上传项目代码**（5分钟）
+   - 文件管理 → 上传打包文件 → 解压到 `/www/wwwroot/wechat-video-service`
+   - 或使用 Git：`git clone <你的仓库地址>`
+
+4. **安装依赖并启动**（5分钟）
+   - 终端：`cd /www/wwwroot/wechat-video-service && npm install --production`
+   - Node 项目管理器 → 添加项目 → 启动
+
+5. **配置 Nginx 反向代理**（5分钟）
+   - 网站 → 添加站点 → 配置反向代理到 `http://127.0.0.1:3000`
+   - 申请 SSL 证书（推荐）
+
+6. **配置微信公众平台**（10分钟）
+   - 访问后台：`http://你的域名/admin/login`（admin/admin123）
+   - 填写微信 AppID、AppSecret、Token
+   - 微信公众平台配置服务器 URL
+
+**详细教程**：查看 [宝塔面板部署指南](BAOTA.md)
+
+**预计时间**：50-60 分钟
+
+#### 命令行部署（适合开发者）
+
+如果你熟悉命令行，也可以手动部署：
 
 ```bash
-# 安装 PM2
-npm install -g pm2
+# 1. 克隆代码
+git clone <你的仓库地址>
+cd wechat-video-service
 
-# 启动服务
-pm2 start src/server.js --name wechat-video-service
+# 2. 安装依赖
+npm install --production
 
-# 查看状态
-pm2 status
-
-# 查看日志
-pm2 logs wechat-video-service
-
-# 设置开机自启
-pm2 startup
+# 3. 使用 PM2 启动
+npm install -g pm2  # 注意：宝塔环境下不需要，Node 项目管理器已内置
+pm2 start ecosystem.config.js
 pm2 save
+pm2 startup
 ```
 
-### 使用 Nginx 反向代理
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    location /wechat {
-        proxy_pass http://localhost:3000/wechat;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-}
-```
-
-### Docker 部署
-
-创建 `Dockerfile`：
-
-```dockerfile
-FROM node:18-alpine
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm install --production
-
-COPY . .
-
-EXPOSE 3000
-
-CMD ["npm", "start"]
-```
-
-构建和运行：
-
-```bash
-docker build -t wechat-video-service .
-docker run -d -p 3000:3000 --env-file .env wechat-video-service
-```
+**注意**：
+- 如果使用宝塔面板，Node 项目管理器已内置 PM2，无需手动安装
+- 详细配置请查看 `nginx.conf` 和 `ecosystem.config.js` 文件
 
 ## 故障排查
 
