@@ -1,0 +1,644 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 用户模型 ====================
+
+enum UserRole {
+  USER
+  VIP
+  REFERRER
+  ADMIN
+}
+
+enum KYCLevel {
+  NONE
+  LEVEL_1
+  LEVEL_2
+  LEVEL_3
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  BANNED
+}
+
+model User {
+  id            String        @id @default(uuid())
+  username      String        @unique
+  email         String        @unique
+  password      String
+  avatar        String?
+  phone         String?
+  role          UserRole      @default(USER)
+  kycLevel      KYCLevel      @default(NONE)
+  accountStatus AccountStatus @default(ACTIVE)
+
+  // 2FA
+  twoFactorSecret   String?
+  twoFactorEnabled  Boolean   @default(false)
+
+  // 推荐相关
+  referralCode  String        @unique
+  referredBy    String?
+  referrer      User?         @relation("UserReferrals", fields: [referredBy], references: [id])
+  referrals     User[]        @relation("UserReferrals")
+
+  // 时间戳
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  lastLoginAt   DateTime?
+
+  // 关联
+  kycApplications   KYCApplication[]
+  wallets           Wallet[]
+  positions         Position[]
+  orders            Order[]
+  trades            Trade[]        @relation("TradeUser")
+  buyTrades         Trade[]        @relation("TradeBuyer")
+  sellTrades        Trade[]        @relation("TradeSeller")
+  transactions      Transaction[]
+  depositRecords    DepositRecord[]
+  withdrawRecords   WithdrawRecord[]
+  referralRecords   ReferralRecord[]  @relation("ReferralReferrer")
+  refereeRecords    ReferralRecord[]  @relation("ReferralReferee")
+  loginLogs         LoginLog[]
+
+  @@index([email])
+  @@index([referralCode])
+  @@map("users")
+}
+
+// ==================== KYC模型 ====================
+
+enum KYCStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  INCOMPLETE
+}
+
+model KYCApplication {
+  id              String      @id @default(uuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  level           KYCLevel
+  status          KYCStatus   @default(PENDING)
+
+  // 基本信息
+  realName        String?
+  idNumber        String?
+  birthDate       DateTime?
+  address         String?
+
+  // 证件照片
+  idFrontImage    String?
+  idBackImage     String?
+  selfieImage     String?
+  addressProof    String?
+
+  // 审核信息
+  rejectionReason String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+
+  // 时间戳
+  submittedAt     DateTime    @default(now())
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("kyc_applications")
+}
+
+// ==================== 资产模型 ====================
+
+enum AssetType {
+  STOCK_RWA
+  VIRTUAL_RWA
+  PROPERTY_RWA
+}
+
+enum AssetStatus {
+  ACTIVE
+  PAUSED
+  DELISTED
+}
+
+model Asset {
+  id                String      @id @default(uuid())
+  code              String      @unique
+  name              String
+  type              AssetType
+  icon              String?
+  description       String?     @db.Text
+
+  // 价格相关
+  price             Float       @default(0)
+  priceChange24h    Float       @default(0)
+  volume24h         Float       @default(0)
+  marketCap         Float       @default(0)
+
+  // 交易配置
+  minTradeAmount    Float       @default(0.001)
+  pricePrecision    Int         @default(2)
+  amountPrecision   Int         @default(4)
+  feeRate           Float       @default(0.001)
+
+  // 资产详情
+  issuer            String?
+  custodian         String?
+  underlyingAsset   String?
+  riskLevel         Int?
+  contractAddress   String?
+  totalSupply       Float?
+
+  // 状态
+  status            AssetStatus @default(ACTIVE)
+  isFeatured        Boolean     @default(false)
+  isNew             Boolean     @default(false)
+  isHot             Boolean     @default(false)
+
+  // 时间戳
+  listedAt          DateTime    @default(now())
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  // 关联
+  positions         Position[]
+  orders            Order[]
+  trades            Trade[]
+  klines            Kline[]
+
+  @@index([code])
+  @@index([type])
+  @@index([status])
+  @@map("assets")
+}
+
+// ==================== 交易订单模型 ====================
+
+enum OrderType {
+  LIMIT
+  MARKET
+  STOP_LOSS
+  TAKE_PROFIT
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderStatus {
+  PENDING
+  PARTIAL
+  FILLED
+  CANCELLED
+  REJECTED
+}
+
+model Order {
+  id            String      @id @default(uuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  assetId       String
+  asset         Asset       @relation(fields: [assetId], references: [id])
+
+  type          OrderType
+  side          OrderSide
+  price         Float
+  amount        Float
+  filledAmount  Float       @default(0)
+  totalValue    Float
+  fee           Float       @default(0)
+  status        OrderStatus @default(PENDING)
+
+  stopPrice     Float?
+
+  // 时间戳
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  filledAt      DateTime?
+
+  // 关联
+  trades        Trade[]
+
+  @@index([userId])
+  @@index([assetId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+// ==================== 成交记录模型 ====================
+
+model Trade {
+  id          String    @id @default(uuid())
+
+  orderId     String
+  order       Order     @relation(fields: [orderId], references: [id])
+
+  buyerId     String
+  buyer       User      @relation("TradeBuyer", fields: [buyerId], references: [id])
+
+  sellerId    String
+  seller      User      @relation("TradeSeller", fields: [sellerId], references: [id])
+
+  assetId     String
+  asset       Asset     @relation(fields: [assetId], references: [id])
+
+  price       Float
+  amount      Float
+  totalValue  Float
+  buyerFee    Float
+  sellerFee   Float
+
+  // 时间戳
+  timestamp   DateTime  @default(now())
+
+  // 关联用户（用于查询）
+  user        User      @relation("TradeUser", fields: [buyerId], references: [id])
+
+  @@index([orderId])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([assetId])
+  @@index([timestamp])
+  @@map("trades")
+}
+
+// ==================== K线数据模型 ====================
+
+enum KlineInterval {
+  MIN_1
+  MIN_5
+  MIN_15
+  MIN_30
+  HOUR_1
+  HOUR_4
+  DAY_1
+  WEEK_1
+}
+
+model Kline {
+  id        String        @id @default(uuid())
+  assetId   String
+  asset     Asset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  interval  KlineInterval
+  timestamp DateTime
+  open      Float
+  high      Float
+  low       Float
+  close     Float
+  volume    Float
+
+  @@unique([assetId, interval, timestamp])
+  @@index([assetId, interval, timestamp])
+  @@map("klines")
+}
+
+// ==================== 钱包模型 ====================
+
+enum Currency {
+  CNY
+  USDT
+  USDC
+}
+
+model Wallet {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  currency  Currency
+  balance   Float     @default(0)
+  frozen    Float     @default(0)
+
+  // 时间戳
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([userId, currency])
+  @@index([userId])
+  @@map("wallets")
+}
+
+// ==================== 持仓模型 ====================
+
+model Position {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  assetId   String
+  asset     Asset    @relation(fields: [assetId], references: [id])
+
+  amount    Float    @default(0)
+  available Float    @default(0)
+  frozen    Float    @default(0)
+  avgCost   Float    @default(0)
+
+  // 时间戳
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, assetId])
+  @@index([userId])
+  @@index([assetId])
+  @@map("positions")
+}
+
+// ==================== 充币记录模型 ====================
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model DepositRecord {
+  id                    String            @id @default(uuid())
+  userId                String
+  user                  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  currency              Currency
+  amount                Float
+  address               String
+  network               String?
+  txHash                String?
+  confirmations         Int               @default(0)
+  requiredConfirmations Int               @default(12)
+  status                TransactionStatus @default(PENDING)
+
+  // 时间戳
+  createdAt             DateTime          @default(now())
+  completedAt           DateTime?
+
+  @@index([userId])
+  @@index([status])
+  @@index([txHash])
+  @@map("deposit_records")
+}
+
+// ==================== 提币记录模型 ====================
+
+model WithdrawRecord {
+  id              String            @id @default(uuid())
+  userId          String
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  currency        Currency
+  amount          Float
+  address         String
+  network         String?
+  fee             Float
+  txHash          String?
+  status          TransactionStatus @default(PENDING)
+
+  rejectionReason String?
+  riskScore       Int?
+
+  // 时间戳
+  createdAt       DateTime          @default(now())
+  reviewedAt      DateTime?
+  completedAt     DateTime?
+
+  @@index([userId])
+  @@index([status])
+  @@index([txHash])
+  @@map("withdraw_records")
+}
+
+// ==================== 资金流水模型 ====================
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAW
+  TRADE_BUY
+  TRADE_SELL
+  FEE
+  REFERRAL_REWARD
+  COMMISSION
+}
+
+model Transaction {
+  id        String          @id @default(uuid())
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      TransactionType
+  currency  Currency
+  amount    Float
+  balance   Float
+  relatedId String?
+  note      String?
+
+  // 时间戳
+  createdAt DateTime        @default(now())
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("transactions")
+}
+
+// ==================== 推荐记录模型 ====================
+
+enum ReferralStatus {
+  PENDING
+  COMPLETED
+}
+
+model ReferralRecord {
+  id          String          @id @default(uuid())
+  referrerId  String
+  referrer    User            @relation("ReferralReferrer", fields: [referrerId], references: [id])
+
+  refereeId   String
+  referee     User            @relation("ReferralReferee", fields: [refereeId], references: [id])
+
+  reward      Float           @default(0)
+  status      ReferralStatus  @default(PENDING)
+
+  // 时间戳
+  createdAt   DateTime        @default(now())
+  completedAt DateTime?
+
+  @@index([referrerId])
+  @@index([refereeId])
+  @@map("referral_records")
+}
+
+// ==================== 管理员模型 ====================
+
+enum AdminRole {
+  SUPER_ADMIN
+  OPERATION
+  FINANCE
+  CUSTOMER_SERVICE
+}
+
+model Admin {
+  id          String        @id @default(uuid())
+  username    String        @unique
+  email       String        @unique
+  password    String
+  role        AdminRole     @default(OPERATION)
+  status      AccountStatus @default(ACTIVE)
+
+  // 时间戳
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  lastLoginAt DateTime?
+
+  // 关联
+  logs        AdminLog[]
+
+  @@index([email])
+  @@map("admins")
+}
+
+// ==================== 管理员操作日志模型 ====================
+
+model AdminLog {
+  id        String   @id @default(uuid())
+  adminId   String
+  admin     Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  action    String
+  details   String?  @db.Text
+  ip        String
+
+  // 时间戳
+  createdAt DateTime @default(now())
+
+  @@index([adminId])
+  @@index([createdAt])
+  @@map("admin_logs")
+}
+
+// ==================== 公告模型 ====================
+
+enum AnnouncementType {
+  SYSTEM
+  NEW_ASSET
+  MAINTENANCE
+  ACTIVITY
+}
+
+model Announcement {
+  id          String            @id @default(uuid())
+  title       String
+  content     String            @db.Text
+  type        AnnouncementType
+  isPinned    Boolean           @default(false)
+  isPopup     Boolean           @default(false)
+
+  // 时间戳
+  publishedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([type])
+  @@index([publishedAt])
+  @@map("announcements")
+}
+
+// ==================== 系统配置模型 ====================
+
+model Config {
+  id    String @id @default(uuid())
+  key   String @unique
+  value String @db.Text
+
+  // 时间戳
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("configs")
+}
+
+// ==================== API合作伙伴模型 ====================
+
+enum PartnerStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+model Partner {
+  id          String        @id @default(uuid())
+  name        String
+  apiKey      String        @unique
+  apiSecret   String
+  status      PartnerStatus @default(ACTIVE)
+  permissions String[]
+  callLimit   Int           @default(10000)
+
+  // 时间戳
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // 关联
+  apiLogs     ApiCallLog[]
+
+  @@index([apiKey])
+  @@map("partners")
+}
+
+// ==================== API调用日志模型 ====================
+
+model ApiCallLog {
+  id           String   @id @default(uuid())
+  partnerId    String
+  partner      Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  endpoint     String
+  method       String
+  statusCode   Int
+  responseTime Int
+  ip           String
+
+  // 时间戳
+  timestamp    DateTime @default(now())
+
+  @@index([partnerId])
+  @@index([timestamp])
+  @@map("api_call_logs")
+}
+
+// ==================== 登录日志模型 ====================
+
+model LoginLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  ip        String
+  userAgent String?
+  location  String?
+  success   Boolean
+
+  // 时间戳
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("login_logs")
+}
