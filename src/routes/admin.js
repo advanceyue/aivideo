@@ -114,6 +114,13 @@ router.get('/settings', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, '../../public/settings.html'));
 });
 
+/**
+ * 一体机管理页面（All-in-One）
+ */
+router.get('/aio', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, '../../public/aio.html'));
+});
+
 // ==================== API 接口 ====================
 
 /**
